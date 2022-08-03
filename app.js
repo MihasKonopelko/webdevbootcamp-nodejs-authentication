@@ -6,8 +6,11 @@ const session = require('express-session');
 const mongoose = require("mongoose");
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
-const GoogleStrategy = require('passport-google-oauth').OAuth2Strategy;
 const findOrCreate = require('mongoose-findorcreate');
+
+const GoogleStrategy = require('passport-google-oauth').OAuth2Strategy;
+const TwitterStrategy = require('passport-twitter');
+
 
 // create app
 const app = express();
@@ -15,12 +18,14 @@ const app = express();
 
 // initialize app
 app.set('view engine', 'ejs');
+
 app.use(express.static("public"));
 app.use(bodyParser.urlencoded({extended: true}));
 app.use(session({
 	secret: process.env.SESSION_SECRET,
   	resave: false,
-  	saveUninitialized: false
+  	saveUninitialized: false,
+	  
 }));
 app.use(passport.initialize());
 app.use(passport.session());
@@ -38,13 +43,16 @@ const userSchema = new mongoose.Schema ({
 	email: { type:String, required:false },
   	password: { type:String, required:false },
   	secret: { type:String, required:false },
-	googleId: { type:String, required:false }
+	googleId: { type:String, required:false },
+	twitterId: { type:String, required:false }
 });
 userSchema.plugin(passportLocalMongoose);
 userSchema.plugin(findOrCreate);
 
 // user model setup
 const User = new mongoose.model("User", userSchema);
+
+// MongoDB Strategy
 passport.use(User.createStrategy());
 passport.serializeUser((user, done) => {done(null, user.id);});
 passport.deserializeUser((id, done) => {
@@ -52,6 +60,8 @@ passport.deserializeUser((id, done) => {
 	  	done(err, user);
 	});
 });
+
+// Google Strategy
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
@@ -64,6 +74,20 @@ passport.use(new GoogleStrategy({
 		});
   }
 ));
+
+// Twitter Strategy
+passport.use(new TwitterStrategy({
+    consumerKey: process.env.TWITTER_CONSUMER_KEY,
+    consumerSecret: process.env.TWITTER_CONSUMER_SECRET,
+    callbackURL: "http://localhost:3000/auth/twitter/callback"
+  },
+  	(token, tokenSecret, profile, done) => {
+    	User.findOrCreate({ twitterId: profile._json.id_str }, (err, user) => {
+      		return done(err, user);
+   		});
+  	}
+));
+
 
 // -----------------------------------------------------------------------
 // routing
@@ -128,14 +152,27 @@ app.get("/logout", (req, res) => {
 
 // -----------------------------------------------------------------------
 
-app.get('/auth/google', 
-  passport.authenticate('google', { scope : ['profile'] }));
+app.get("/auth/google", 
+  passport.authenticate("google", { scope : ["profile"] }));
  
-app.get('/auth/google/callback', 
-  passport.authenticate('google', { failureRedirect: '/login' }),
+app.get("/auth/google/callback", 
+  passport.authenticate("google", { failureRedirect: "/login"}),
   (req, res) => {
-    res.redirect('/secrets');
+    res.redirect("/secrets");
   });
+
+// -----------------------------------------------------------------------
+
+app.get("/auth/twitter",
+  passport.authenticate("twitter"));
+
+app.get("/auth/twitter/callback", 
+  passport.authenticate("twitter", { failureRedirect: "/login" }),
+  (req, res) => {
+    // Successful authentication, redirect home.
+    res.redirect("/secrets");
+  });
+
 
 // -----------------------------------------------------------------------
 
