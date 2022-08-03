@@ -6,7 +6,8 @@ const session = require('express-session');
 const mongoose = require("mongoose");
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
-
+const GoogleStrategy = require('passport-google-oauth').OAuth2Strategy;
+const findOrCreate = require('mongoose-findorcreate');
 
 // create app
 const app = express();
@@ -28,24 +29,41 @@ app.use(passport.session());
 // db setup
 const dbAddress="mongodb://localhost:27017/";
 const dbName="userDB";
-mongoose.connect(dbAddress + dbName);
+mongoose.connect(dbAddress + dbName, {useNewUrlParser: true});
 mongoose.set("useCreateIndex", true);
 
 
 // user schema setup
 const userSchema = new mongoose.Schema ({
-  	email: { type:String, required:true },
-  	password: { type:String, required:true },
-  	secret: { type:String, required:false }
+	email: { type:String, required:false },
+  	password: { type:String, required:false },
+  	secret: { type:String, required:false },
+	googleId: { type:String, required:false }
 });
 userSchema.plugin(passportLocalMongoose);
-
+userSchema.plugin(findOrCreate);
 
 // user model setup
 const User = new mongoose.model("User", userSchema);
 passport.use(User.createStrategy());
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
+passport.serializeUser((user, done) => {done(null, user.id);});
+passport.deserializeUser((id, done) => {
+	User.findById(id, (err, user) => {
+	  	done(err, user);
+	});
+});
+passport.use(new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/google/callback",
+    userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
+  },
+  	(accessToken, refreshToken, profile, done) => {
+		User.findOrCreate({ googleId: profile.id }, (err, user) => {
+			return done(err, user);
+		});
+  }
+));
 
 // -----------------------------------------------------------------------
 // routing
@@ -107,6 +125,17 @@ app.get("/logout", (req, res) => {
 	req.logout();
 	res.redirect("/");
 });
+
+// -----------------------------------------------------------------------
+
+app.get('/auth/google', 
+  passport.authenticate('google', { scope : ['profile'] }));
+ 
+app.get('/auth/google/callback', 
+  passport.authenticate('google', { failureRedirect: '/login' }),
+  (req, res) => {
+    res.redirect('/secrets');
+  });
 
 // -----------------------------------------------------------------------
 
